@@ -1,0 +1,14 @@
+{
+  "name": "tinybuild-skills",
+  "owner": {
+    "name": "TinyBuild Studio",
+    "url": "https://blastoff.tinybuild.workers.dev"
+  },
+  "plugins": [
+    {
+      "name": "blastoff",
+      "source": "./plugins/blastoff",
+      "description": "Submit your product to 30 launch directories from inside Claude Code. Agent reads profiles + recipes + AI copy variants via BlastOff MCP; drives the browser to fill forms."
+    }
+  ]
+}
