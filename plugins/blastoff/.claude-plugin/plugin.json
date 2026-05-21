@@ -1,5 +1,11 @@
 {
   "name": "blastoff",
   "description": "Submit your product to 30 launch directories from inside Claude Code. Reads profile + directory recipes + AI-generated copy variants from the BlastOff MCP; agent drives the browser via Playwright MCP (or whatever browser tool you have installed). Built for indie makers who'd rather ship than copy-paste.",
-  "version": "0.1.0"
+  "version": "0.1.1",
+  "mcpServers": {
+    "blastoff": {
+      "type": "http",
+      "url": "https://blastoff.tinybuild.workers.dev/mcp"
+    }
+  }
 }
