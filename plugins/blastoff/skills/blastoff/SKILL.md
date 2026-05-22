@@ -1,6 +1,6 @@
 ---
 name: blastoff
-description: Submit a product to launch directories from inside Claude Code. Use when the user says "submit X to Product Hunt", "post to DevHunt", "launch on BetaList", "submit to all directories", "blast off", or any other framing that means "fill a directory submission form using my saved profile." Reads BlastOff MCP for profile + directory recipes + copy variants; agent drives the browser via whatever browser-control MCP is installed (Playwright MCP, chrome-devtools MCP, etc.) — never auto-submits, always pauses for human review before the final click.
+description: Submit a product to launch directories from inside Claude Code. Use when the user says "submit X to Product Hunt", "post to DevHunt", "launch on BetaList", "submit to all directories", "blast off", or any other framing that means "fill a directory submission form using my saved profile." Reads BlastOff MCP for profile + directory recipes + copy variants; agent drives the user's real Chrome via claude-in-chrome (preferred) or any other browser-control MCP installed (Playwright, chrome-devtools) — never auto-submits, always pauses for human review before the final click.
 ---
 
 # BlastOff
@@ -12,7 +12,7 @@ Agent-driven directory submission. The user has a product profile saved in Blast
 This skill assumes two MCP servers are connected:
 
 1. **`blastoff`** — the data layer. URL: `https://blastoff.tinybuild.workers.dev/mcp`. Tools: `get_profile`, `list_directories`, `get_recipe`, `generate_variants`, `extract_from_url`, `mark_submitted`.
-2. **A browser-control MCP** — typically `playwright` or `chrome-devtools`. Used to navigate, fill, click. The skill is browser-tool-agnostic — use whichever the user has installed.
+2. **A browser-control MCP** — preferred: `claude-in-chrome` (drives the user's real, logged-in Chrome — passes through their cookies, OAuth sessions, and bot checks). Fallbacks: `playwright`, `chrome-devtools`. The skill is browser-tool-agnostic for the fill mechanics, but `claude-in-chrome` is the strong default because directory submit forms are gated by OAuth and bot detection — using the user's own browser side-steps both.
 
 If `blastoff` isn't connected, instruct the user to add it: `claude mcp add --transport http blastoff https://blastoff.tinybuild.workers.dev/mcp`. If no browser MCP is available, fall back to returning the filled-field data so the user can copy-paste manually.
 
@@ -28,9 +28,13 @@ When triggered:
 
 4. **Pre-flight the profile against the recipe.** Walk the recipe's `fields[]` array. For each required field, check the profile has a value at or under the field's `max_length`. If a variant is missing or too long, call `generate_variants(url, field, char_limit)` to regenerate it. Costs tokens — surface the call to the user, don't do it silently.
 
+   **Visual assets check.** If the recipe lists `logo_url` or `screenshot_urls` as required and the profile has `logo_url: null` or `screenshots: []`, do NOT claim the product is "ready to submit." Surface the gap explicitly: "DevHunt requires a logo + 3 screenshots. Your Bonfire profile has 0 screenshots and no logo. Upload them at https://blastoff.tinybuild.workers.dev/?url=... before submitting, or proceed knowing the submission can't complete." Let the user choose.
+
+   **URL normalization.** Always pass profile URLs with protocol (`https://getbonfire.dev`, not `getbonfire.dev`) when calling `get_profile`. The Worker normalizes bare hostnames, but explicit is safer across MCP transports.
+
 5. **Drive the browser.**
    - Navigate to `submit_url` via the browser MCP.
-   - Handle auth: if the recipe says `auth_type` requires login (OAuth, account), pause and ask the user to log in first. Don't attempt to fill credentials yourself.
+   - **Auth gate.** After navigation, read the page once. If you see "Sign In" / "Continue with GitHub" / "Continue with Google" / a login form, the user isn't logged in. Pause: "DevHunt's submit form is gated by GitHub or Google OAuth. Sign in (in your own Chrome window — the cookie applies browser-wide), then say 'continue' and I'll re-read the form." Never attempt OAuth flows yourself. Always re-read the page after the user signals login complete, before assuming the form is visible.
    - For each field, use the browser MCP to find the element by `selector` and fill with the profile's value. Trim or use the regenerated variant if the field has a `max_length`.
    - For radio/select fields with `dropdown_values`, match the profile value (case-insensitive) and click.
    - For file inputs (logo, screenshots): you cannot fill these programmatically — report to the user as "do manually."
@@ -59,10 +63,10 @@ Selectors in recipes are approximations — they came from open-source repos and
 **User:** "Submit Bonfire to DevHunt."
 1. `get_profile('https://getbonfire.dev')` → profile loaded
 2. `get_recipe('devhunt')` → submit URL + 11 fields
-3. Check field lengths against profile — Bonfire's 60-char tagline is 53 chars, fits DevHunt's tagline (min 10). All variants OK.
-4. Browser MCP navigates to `https://devhunt.org/account/tools/new` → DevHunt requires GitHub/Google OAuth → pause: "Please log in to DevHunt, then say 'continue' to fill the form."
-5. After user logs in: fill tool_name, slogan, tool_website, github_repo, tool_description; click pricing radio for "Free". Report: "Filled 6 of 11. Skipped: github_repo (no value in profile). Do manually: logo (file upload), screenshots 3+ (file upload), launch week (depends on availability), tool categories (multi-select)."
-6. Pause for review + submit.
+3. Pre-flight field lengths: Bonfire's 60-char tagline is 53 chars, fits DevHunt's `min 10`. All text variants OK. **Visual assets check:** `logo_url: null`, `screenshots: []`. Surface: "DevHunt requires a logo + 3 screenshots. Your profile has neither. Upload first at https://blastoff.tinybuild.workers.dev, or proceed knowing the submission can't complete." User picks proceed.
+4. claude-in-chrome navigates to `https://devhunt.org/account/tools/new`. Re-read the page → sees "Continue with GitHub / Continue with Google" → pause: "Sign in to DevHunt in your own Chrome window, then say continue."
+5. User logs in → re-read page → form is visible. Fill tool_name (`Bonfire`), slogan (the 60-char tagline), tool_website, tool_description; click pricing radio matching profile.pricing (`Free`). Skip github_repo (profile has no value). Report: "Filled 5 of 11. Skipped: github_repo (no value). Do manually: logo (file upload), screenshots 3+ (file upload), tool categories (multi-select), launch week (only one free slot ~13 months out; the rest are $49 — see recipe.gotchas)."
+6. Pause for review + submit. Surface DevHunt's $49 launch-week reality before the user clicks.
 7. After confirmation: `mark_submitted('https://getbonfire.dev', 'devhunt', '<listing url if visible>')`.
 
 **User:** "Blast off Bonfire to all easy directories."
